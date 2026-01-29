@@ -1,0 +1,230 @@
+# .github/workflows/deploy.yml
+name: Deploy eNPS Reports Generator
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      quarter_offset:
+        description: 'Quarter offset (-1 for previous quarter, -2 for quarter before last, etc.)'
+        required: false
+        default: '-1'
+      run_excel_only:
+        description: 'Generate only Excel file (true/false)'
+        required: false
+        default: 'false'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag enpsreportsgenerator:latest \
+            --tag enpsreportsgenerator:${{ github.sha }} \
+            .
+
+      - name: Save Docker image
+        run: docker save enpsreportsgenerator:latest | gzip > enpsreportsgenerator.tar.gz
+
+      - name: Test Docker image
+        run: |
+          # Проверяем, что образ собирается и базовые команды работают
+          docker run --rm enpsreportsgenerator:latest python --version
+          docker run --rm enpsreportsgenerator:latest pip list | grep -E "pandas|openai|psycopg2"
+
+      - name: Create directory on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            mkdir -p /opt/enps_reports_generator
+            mkdir -p /opt/enps_reports_generator/output_reports
+            chmod 755 /opt/enps_reports_generator
+            chmod 777 /opt/enps_reports_generator/output_reports
+
+      - name: Copy files to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          source: "enpsreportsgenerator.tar.gz,requirements.txt,Dockerfile,.env.example,README.md"
+          target: "/opt/enps_reports_generator"
+          strip_components: 0
+
+      - name: Deploy and setup on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            cd /opt/enps_reports_generator
+            
+            # Создаем .env файл из secrets
+            cat > .env << EOF
+            # Database configuration
+            DB_HOST=${{ secrets.DB_HOST }}
+            DB_PORT=${{ secrets.DB_PORT || 5433 }}
+            DB_NAME=${{ secrets.DB_NAME || 'enps' }}
+            DB_USER=${{ secrets.DB_USER }}
+            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
+            
+            # AI/LiteLLM configuration
+            LITELLM_API_KEY=${{ secrets.LITELLM_API_KEY }}
+            LITELLM_MODEL_NAME=${{ secrets.LITELLM_MODEL_NAME || 'openai-gpt-5-mini' }}
+            LITELLM_BASE_URL=${{ secrets.LITELLM_BASE_URL || 'https://litellm.poryadok.ru' }}
+            
+            # Bitrix24 configuration
+            BITRIX_TOKEN=${{ secrets.BITRIX_TOKEN }}
+            BITRIX_USER_ID=${{ secrets.BITRIX_USER_ID || 163472 }}
+            BITRIX_ENPS_REPORTS_FOLDER_ID=${{ secrets.BITRIX_ENPS_REPORTS_FOLDER_ID || 5057340 }}
+            
+            # Poradock logging
+            PORADOCK_TOKEN=${{ secrets.PORADOCK_TOKEN || '' }}
+            
+            # Paths
+            WKHTMLTOPDF_PATH=/usr/local/bin/wkhtmltopdf
+            OUTPUT_DIR=/opt/enps_reports_generator/output_reports
+            
+            # Runtime parameters (можно переопределить при запуске)
+            QUARTER_OFFSET=${{ github.event.inputs.quarter_offset || '-1' }}
+            RUN_EXCEL_ONLY=${{ github.event.inputs.run_excel_only || 'false' }}
+            EOF
+            
+            # Загружаем Docker образ
+            docker load < enpsreportsgenerator.tar.gz
+            
+            # Останавливаем старые контейнеры
+            docker stop ENPSReportsGenerator 2>/dev/null || true
+            docker rm ENPSReportsGenerator 2>/dev/null || true
+            
+            echo "Starting eNPS Reports Generator container..."
+            
+            # Запускаем контейнер с переменными окружения
+            docker run -d \
+              --name ENPSReportsGenerator \
+              --network host \
+              --env-file .env \
+              -e QUARTER_OFFSET="${{ github.event.inputs.quarter_offset || '-1' }}" \
+              -e RUN_EXCEL_ONLY="${{ github.event.inputs.run_excel_only || 'false' }}" \
+              -v /opt/enps_reports_generator/output_reports:/app/output_reports \
+              enpsreportsgenerator:latest
+            
+            # Ждем и проверяем логи
+            sleep 10
+            
+            echo "=== Container status ==="
+            docker ps -a | grep ENPSReportsGenerator
+            
+            echo "=== Last 50 lines of logs ==="
+            docker logs --tail 50 ENPSReportsGenerator 2>&1 || echo "Cannot get logs"
+            
+            # Проверяем статус контейнера
+            CONTAINER_STATUS=$(docker inspect ENPSReportsGenerator --format='{{.State.Status}}' 2>/dev/null || echo "not_found")
+            EXIT_CODE=$(docker inspect ENPSReportsGenerator --format='{{.State.ExitCode}}' 2>/dev/null || echo "unknown")
+            
+            echo "Container status: $CONTAINER_STATUS"
+            echo "Exit code: $EXIT_CODE"
+            
+            if [ "$CONTAINER_STATUS" = "exited" ] && [ "$EXIT_CODE" -eq 0 ]; then
+              echo "Container completed successfully!"
+              
+              # Показываем созданные файлы
+              echo "=== Generated files ==="
+              ls -la /opt/enps_reports_generator/output_reports/ || echo "No output directory"
+            elif [ "$CONTAINER_STATUS" = "exited" ] && [ "$EXIT_CODE" -ne 0 ]; then
+              echo "Container exited with error code: $EXIT_CODE"
+              echo "=== Full logs ==="
+              docker logs ENPSReportsGenerator 2>&1
+              exit 1
+            else
+              echo "Container status: $CONTAINER_STATUS"
+            fi
+            
+            # Настраиваем cron job для автоматического запуска
+            echo "Setting up cron job for monthly execution..."
+            
+            cat > run_enps_report.sh << 'SCRIPT_EOF'
+            #!/bin/bash
+            cd /opt/enps_reports_generator
+            
+            echo "[$(date)] Starting monthly eNPS report generation..." >> /opt/enps_reports_generator/enps_cron.log
+            
+            # Останавливаем старый контейнер если есть
+            docker stop ENPSReportsGenerator_cron 2>/dev/null || true
+            docker rm ENPSReportsGenerator_cron 2>/dev/null || true
+            
+            # Запускаем генерацию отчетов за предыдущий квартал
+            docker run --rm \
+              --name ENPSReportsGenerator_cron \
+              --network host \
+              --env-file .env \
+              -e QUARTER_OFFSET="-1" \
+              -v /opt/enps_reports_generator/output_reports:/app/output_reports \
+              enpsreportsgenerator:latest >> /opt/enps_reports_generator/enps_cron.log 2>&1
+            
+            EXIT_CODE=$?
+            
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "[$(date)] Monthly eNPS report generated successfully" >> /opt/enps_reports_generator/enps_cron.log
+            else
+              echo "[$(date)] Monthly eNPS report generation failed with exit code: $EXIT_CODE" >> /opt/enps_reports_generator/enps_cron.log
+            fi
+            SCRIPT_EOF
+            
+            chmod +x run_enps_report.sh
+            
+            # Устанавливаем cron job на 1 число каждого месяца в 3:00
+            (crontab -l 2>/dev/null | grep -v "run_enps_report.sh") | crontab -
+            (crontab -l 2>/dev/null; echo "0 3 1 * * /opt/enps_reports_generator/run_enps_report.sh") | crontab -
+            
+            # Для тестирования - запуск каждый день в 4:00 (можно удалить в продакшене)
+            (crontab -l 2>/dev/null; echo "0 4 * * * /opt/enps_reports_generator/run_enps_report.sh") | crontab -
+            
+            echo "=== Installed cron jobs ==="
+            crontab -l
+            
+            # Очистка старых Docker образов
+            echo "Cleaning up old Docker images..."
+            docker images enpsreportsgenerator --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
+            
+            # Очистка временных файлов
+            rm -f enpsreportsgenerator.tar.gz
+            
+            echo "Deployment successful!"
+
+      - name: Cleanup local files
+        if: always()
+        run: rm -f enpsreportsgenerator.tar.gz
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "eNPS Reports Generator deployed successfully!"
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "eNPS Reports Generator deployment failed!"
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"

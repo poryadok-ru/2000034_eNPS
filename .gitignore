@@ -1,0 +1,275 @@
+# .gitignore для проекта eNPS Reports Generator
+
+# ================================
+# Python
+# ================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+.python-version
+
+# ================================
+# Virtual Environments
+# ================================
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+*.venv
+virtualenvs/
+
+# ================================
+# IDE и редакторы
+# ================================
+# PyCharm
+.idea/
+*.iml
+.idea_modules/
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+*.vim
+
+# Sublime Text
+*.sublime-*
+
+# ================================
+# Environment Variables
+# ================================
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+secrets.env
+
+# ================================
+# Output Files
+# ================================
+output_reports/
+*.pdf
+*.xlsx
+*.xls
+*.csv
+*.json
+*.log
+
+# ================================
+# Logs
+# ================================
+*.log
+logs/
+enps_reports.log
+bitrix_upload.log
+ai_analysis.log
+*.log.*
+log/
+
+# ================================
+# System Files
+# ================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ================================
+# Windows
+# ================================
+# Windows thumbnail cache files
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# Windows Installer files
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+
+# Windows shortcuts
+*.lnk
+
+# ================================
+# Docker
+# ================================
+docker-compose.override.yml
+.dockerignore
+docker-compose.env
+
+# ================================
+# Git
+# ================================
+.git-credentials
+.gitattributes
+.gitkeep
+
+# ================================
+# Jupyter Notebook
+# ================================
+.ipynb_checkpoints/
+*.ipynb
+
+# ================================
+# Database
+# ================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ================================
+# macOS
+# ================================
+# General
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Icon must end with two \r
+Icon
+
+# Thumbnails
+._*
+
+# Files that might appear in the root of a volume
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Directories potentially created on remote AFP share
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# ================================
+# Linux
+# ================================
+*~
+
+# temporary files which can be created if a process still has a handle open of a deleted file
+.fuse_hidden*
+
+# KDE directory preferences
+.directory
+
+# Linux trash folder which might appear on any partition or disk
+.Trash-*
+
+# .nfs files are created when an open file is removed but is still being accessed
+.nfs*
+
+# ================================
+# Project Specific
+# ================================
+# Конфигурационные файлы с чувствительными данными
+config_local.py
+secrets.py
+credentials.json
+
+# Временные файлы проекта
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Резервные копии
+*.bak
+*.backup
+*.old
+*.orig
+*.save
+
+# Файлы тестов
+test_output/
+test_results/
+
+# Файлы wkhtmltopdf
+wkhtmltox-*.deb
+wkhtmltopdf-install/
+
+# ================================
+# GitHub Actions
+# ================================
+!.github/workflows/
+.github/workflows/*.yml.disabled
+.github/workflows/*.yaml.disabled
+
+# ================================
+# Библиотеки
+# ================================
+site-packages/
+lib64/
+include/
+bin/
+share/
+man/
+
+# ================================
+# Файлы разработчика
+# ================================
+# Локальные настройки разработчика
+local_settings.py
+dev_settings.py
+debug.py
+
+# Планы и заметки
+TODO.md
+notes.md
+scratch.md
+draft.md

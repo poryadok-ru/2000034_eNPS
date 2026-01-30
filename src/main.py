@@ -1,9 +1,12 @@
+# ВСЕГДА ПЕРВЫЕ СТРОКИ - до любых импортов!
+import os
 import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from dotenv import load_dotenv
+load_dotenv()
 import re
 from datetime import datetime
 from collections import defaultdict
-
-# Импорт из модулей проекта
 from config.settings import *
 from utils.logger import setup_logger
 from database.db_handler import Database
@@ -12,7 +15,6 @@ from reports.pdf_generator import PDFGenerator
 from reports.data_processor import *
 from reports.excel_generator import create_excel_from_json_data
 from bitrix.uploader import upload_to_bitrix, upload_excel_to_bitrix
-
 # Инициализируем логгер глобально
 logger = setup_logger(PORADOCK_TOKEN)
 

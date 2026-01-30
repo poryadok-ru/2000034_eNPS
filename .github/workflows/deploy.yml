@@ -41,8 +41,8 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script: |
-            mkdir -p /opt/enps_reports_generator
-            chmod 755 /opt/enps_reports_generator
+            mkdir -p /home/deploy/enps_reports_generator
+            chmod 755 /home/deploy/enps_reports_generator
 
       - name: Copy files to server
         uses: appleboy/scp-action@v0.1.7
@@ -52,7 +52,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           source: "enpsreportsgenerator.tar.gz,requirements.txt,Dockerfile,.env.example"
-          target: "/opt/enps_reports_generator"
+          target: "/home/deploy/enps_reports_generator"
           strip_components: 0
 
       - name: Deploy and setup on server
@@ -63,7 +63,7 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
           script: |
-            cd /opt/enps_reports_generator
+            cd /home/deploy/enps_reports_generator
             
             # Получаем параметры из workflow_dispatch или используем значения по умолчанию
             QUARTER_OFFSET="${{ github.event.inputs.quarter_offset || '-1' }}"
@@ -166,7 +166,7 @@ jobs:
             
             cat > run_enps_report.sh << 'SCRIPT_EOF'
             #!/bin/bash
-            cd /opt/enps_reports_generator
+            cd /home/deploy/enps_reports_generator
             
             # Удаляем старый контейнер, если есть
             docker rm -f ENPSReportsGenerator_cron 2>/dev/null || true
@@ -178,17 +178,17 @@ jobs:
               --rm \
               enpsreportsgenerator:latest
               
-            echo "[$(date)] eNPS report generated for previous quarter" >> /opt/enps_reports_generator/enps_reports.log
+            echo "[$(date)] eNPS report generated for previous quarter" >> /home/deploy/enps_reports_generator/enps_reports.log
             SCRIPT_EOF
             
             chmod +x run_enps_report.sh
 
             # Устанавливаем cron job на 1 число каждого квартала в 3:00
             (crontab -l 2>/dev/null | grep -v "run_enps_report.sh") | crontab -
-            (crontab -l 2>/dev/null; echo "0 3 1 1,4,7,10 * /opt/enps_reports_generator/run_enps_report.sh >> /opt/enps_reports_generator/enps_reports_cron.log 2>&1") | crontab -
+            (crontab -l 2>/dev/null; echo "0 3 1 1,4,7,10 * /home/deploy/enps_reports_generator/run_enps_report.sh >> /home/deploy/enps_reports_generator/enps_reports_cron.log 2>&1") | crontab -
             
             # Для тестирования - запуск каждый день в 14:00 (можно удалить в продакшене)
-            (crontab -l 2>/dev/null; echo "0 14 * * * /opt/enps_reports_generator/run_enps_report.sh >> /opt/enps_reports_generator/enps_reports_test.log 2>&1") | crontab -
+            (crontab -l 2>/dev/null; echo "0 14 * * * /home/deploy/enps_reports_generator/run_enps_report.sh >> /home/deploy/enps_reports_generator/enps_reports_test.log 2>&1") | crontab -
 
             echo "Cron jobs installed:"
             crontab -l
@@ -198,15 +198,3 @@ jobs:
             docker images enpsreportsgenerator --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
             rm -f enpsreportsgenerator.tar.gz
             echo "Deployment successful!"
-
-      - name: Cleanup local files
-        if: always()
-        run: rm -f enpsreportsgenerator.tar.gz
-
-      - name: Notify on success
-        if: success()
-        run: echo "eNPS Reports Generator deployed successfully!"
-
-      - name: Notify on failure
-        if: failure()
-        run: echo "eNPS Reports Generator deployment failed!"

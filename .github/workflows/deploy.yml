@@ -32,6 +32,20 @@ jobs:
       - name: Save Docker image
         run: docker save enpsreportsgenerator:latest | gzip > enpsreportsgenerator.tar.gz
 
+      - name: Create directory structure on server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            # Создаем директорию с правильными правами (КАК В CALLQ)
+            sudo mkdir -p /opt/enps_reports_generator/{output,logs}
+            sudo chown -R deploy:deploy /opt/enps_reports_generator
+            sudo chmod -R 755 /opt/enps_reports_generator
+            echo "Directory structure created"
+
       - name: Copy files to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -43,6 +57,20 @@ jobs:
           target: "/opt/enps_reports_generator"
           strip_components: 0
 
+      - name: Fix permissions after copy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            cd /opt/enps_reports_generator
+            # Исправляем права после копирования
+            sudo chown -R deploy:deploy /opt/enps_reports_generator
+            sudo chmod -R 755 /opt/enps_reports_generator
+            echo "Permissions fixed"
+
       - name: Deploy and setup on server
         uses: appleboy/ssh-action@v1.0.3
         with:
@@ -53,11 +81,23 @@ jobs:
           script: |
             cd /opt/enps_reports_generator
             
-            # Получаем параметры из workflow_dispatch или используем значения по умолчанию
-            QUARTER_OFFSET="${{ github.event.inputs.quarter_offset || '-1' }}"
-            RUN_EXCEL_ONLY="${{ github.event.inputs.run_excel_only || 'false' }}"
+            # Проверяем что файлы есть
+            echo "Files in directory:"
+            ls -la
             
-            echo "Using parameters: quarter_offset=$QUARTER_OFFSET, run_excel_only=$RUN_EXCEL_ONLY"
+            # Проверяем архив
+            if [ ! -f "enpsreportsgenerator.tar.gz" ]; then
+              echo "ERROR: enpsreportsgenerator.tar.gz not found!"
+              exit 1
+            fi
+            
+            # Загружаем Docker образ (КАК В CALLQ)
+            echo "Loading Docker image..."
+            docker load < enpsreportsgenerator.tar.gz
+            
+            # Проверяем что образ загрузился
+            echo "Docker images after load:"
+            docker images | grep enpsreportsgenerator || echo "Image not found!"
             
             # Создаем .env файл
             cat > .env << EOF
@@ -80,49 +120,13 @@ jobs:
             WKHTMLTOPDF_PATH=/usr/local/bin/wkhtmltopdf
             OUTPUT_DIR=/app/output_reports
             
-            # Переменные для runtime (будут переопределены при запуске контейнера)
-            QUARTER_OFFSET=$QUARTER_OFFSET
-            RUN_EXCEL_ONLY=$RUN_EXCEL_ONLY
+            QUARTER_OFFSET=-1
+            RUN_EXCEL_ONLY=false
             EOF
-
-            # Загружаем Docker образ
-            docker load < enpsreportsgenerator.tar.gz
             
-            # Останавливаем старые контейнеры
-            docker stop ENPSReportsGenerator 2>/dev/null || true
-            docker rm ENPSReportsGenerator 2>/dev/null || true
+            chmod 600 .env
             
-            echo "Starting container with parameters: quarter_offset=$QUARTER_OFFSET, run_excel_only=$RUN_EXCEL_ONLY"
-            
-            # Запускаем контейнер
-            docker run -d \
-              --name ENPSReportsGenerator \
-              --network host \
-              --env-file .env \
-              -e QUARTER_OFFSET="$QUARTER_OFFSET" \
-              -e RUN_EXCEL_ONLY="$RUN_EXCEL_ONLY" \
-              enpsreportsgenerator:latest
-            
-            echo "Container started"
-            
-            # Ждем завершения и проверяем логи
-            sleep 30
-            
-            echo "=== Container logs ==="
-            docker logs ENPSReportsGenerator 2>&1 | tail -100
-            
-            # Проверяем статус
-            if docker ps -a --format "table {{.Names}}\t{{.Status}}" | grep ENPSReportsGenerator | grep -q "Exited (0)"; then
-              echo "SUCCESS: Container completed successfully"
-            elif docker ps --format "table {{.Names}}" | grep -q ENPSReportsGenerator; then
-              echo "INFO: Container is still running (this may be normal for long tasks)"
-            else
-              echo "WARNING: Container status unknown"
-            fi
-            
-            # Настраиваем cron job для автоматического запуска
-            echo "Setting up cron job..."
-            
+            # Создаем скрипт для запуска
             cat > run_enps_report.sh << 'SCRIPT_EOF'
             #!/bin/bash
             cd /opt/enps_reports_generator
@@ -141,23 +145,42 @@ jobs:
             SCRIPT_EOF
             
             chmod +x run_enps_report.sh
-
-            # Устанавливаем cron job на 1 число каждого квартала в 3:00 (продакшен)
-            (crontab -l 2>/dev/null | grep -v "run_enps_report.sh") | crontab -
-            (crontab -l 2>/dev/null; echo "0 3 1 1,4,7,10 * /opt/enps_reports_generator/run_enps_report.sh >> /opt/enps_reports_generator/enps_reports_cron.log 2>&1") | crontab -
             
-            # Тестовый запуск каждый день в 17:10
-            (crontab -l 2>/dev/null; echo "10 17 * * * /opt/enps_reports_generator/run_enps_report.sh >> /opt/enps_reports_generator/enps_reports_test.log 2>&1") | crontab -
+            echo "Deployment files created"
 
-            echo "Cron jobs installed:"
-            crontab -l
-
-            # Очистка старых Docker образов (оставляем последние 3)
-            echo "Cleaning up old Docker images..."
-            docker images enpsreportsgenerator --format "{{.ID}}" | tail -n +4 | xargs -r docker rmi 2>/dev/null || true
-            rm -f enpsreportsgenerator.tar.gz
+      - name: Update cron jobs (КАК В CALLQ)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          script: |
+            # Создаем временный crontab файл (КАК В CALLQ)
+            TMP_CRON=$(mktemp)
             
-            echo "Deployment successful!"
+            # Сохраняем текущий crontab пользователя deploy
+            sudo -u deploy crontab -l > "$TMP_CRON" 2>/dev/null || touch "$TMP_CRON"
+            
+            # Удаляем старые задачи enps (если есть)
+            sed -i '/enps/d' "$TMP_CRON"
+            
+            # Добавляем новые задачи
+            cat >> "$TMP_CRON" << 'EOF'
+            # eNPS Reports - продакшен (1 число каждого квартала в 3:00)
+            0 3 1 1,4,7,10 * /opt/enps_reports_generator/run_enps_report.sh >> /opt/enps_reports_generator/enps_reports_cron.log 2>&1
+            
+            # eNPS Reports - тестовый запуск (каждый день в 17:10)
+            25 13 * * * /opt/enps_reports_generator/run_enps_report.sh >> /opt/enps_reports_generator/enps_reports_test.log 2>&1
+            EOF
+            
+            # Устанавливаем новый crontab для пользователя deploy (КАК В CALLQ)
+            sudo -u deploy crontab "$TMP_CRON"
+            rm "$TMP_CRON"
+            
+            # Показываем текущий crontab
+            echo "Current crontab for deploy user:"
+            sudo -u deploy crontab -l | grep enps || echo "No enps jobs found"
 
       - name: Cleanup local files
         if: always()

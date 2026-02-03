@@ -42,4 +42,4 @@ RUN mkdir -p /app/output_reports
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-CMD ["python", "-u", "-m", "src.main"]
+CMD ["python", "-u", "src/main.py"]

@@ -27,14 +27,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Копируем ВСЕ файлы проекта
-COPY src/main.py .
-COPY src/config/ ./src/config/
-COPY src/database/ ./src/database/
-COPY src/ai/ ./src/ai/
-COPY src/reports/ ./src/reports/
-COPY src/bitrix/ ./src/bitrix/
-COPY src/utils/ ./src/utils/
+# ИСПРАВЛЕНИЕ: Копируем ВСЮ src директорию правильно
+COPY src/ ./src/
 
 # Создаем выходную директорию
 RUN mkdir -p /app/output_reports
@@ -42,4 +36,5 @@ RUN mkdir -p /app/output_reports
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
+# ИСПРАВЛЕНИЕ: Запускаем правильно
 CMD ["python", "-u", "src/main.py"]
